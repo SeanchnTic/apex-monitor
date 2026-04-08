@@ -1,0 +1,206 @@
+@import "tailwindcss";
+
+:root {
+  /* Dark Theme Colors - Financial Intelligence */
+  --color-surface: #0f1419;
+  --color-surface-dim: #0d1117;
+  --color-surface-container: #161b22;
+  --color-surface-container-low: #1a2332;
+  --color-surface-container-lowest: #1e2a3a;
+  --color-surface-container-high: #252d3d;
+  --color-surface-container-highest: #2d3848;
+  
+  --color-on-surface: #e6edf3;
+  --color-on-surface-variant: #8b949e;
+  
+  --color-primary: #3b82f6;
+  --color-primary-container: #1d4ed8;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #dbeafe;
+  
+  /* A-share convention: Red = 涨, Green = 跌 */
+  --color-secondary: #ef4444;  /* 涨 - Red */
+  --color-secondary-container: #dc2626;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #fee2e2;
+  
+  --color-tertiary: #22c55e;   /* 跌 - Green */
+  --color-tertiary-container: #16a34a;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #dcfce7;
+  
+  --color-inverse-surface: #e6edf3;
+  --color-inverse-on-surface: #0f1419;
+  --color-inverse-primary: #1d4ed8;
+  
+  --color-outline: #30363d;
+  --color-outline-variant: #21262d;
+  
+  --color-error: #f85149;
+  --color-error-container: #da3633;
+  
+  /* Shadows */
+  --shadow-ambient: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --color-surface: #f5f5f5;
+  --color-surface-dim: #ebebeb;
+  --color-surface-container: #ffffff;
+  --color-surface-container-low: #fafafa;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-high: #e8e8e8;
+  --color-surface-container-highest: #e0e0e0;
+  
+  --color-on-surface: #1a1a1a;
+  --color-on-surface-variant: #666666;
+  
+  --color-primary: #2563eb;
+  --color-primary-container: #3b82f6;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #dbeafe;
+  
+  /* A-share convention: Red = 涨, Green = 跌 */
+  --color-secondary: #dc2626;  /* 涨 - Red */
+  --color-secondary-container: #ef4444;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #fee2e2;
+  
+  --color-tertiary: #16a34a;   /* 跌 - Green */
+  --color-tertiary-container: #22c55e;
+  --color-on-tertiary: #ffffff;
+  --color-on-tertiary-container: #dcfce7;
+  
+  --color-inverse-surface: #1a1a1a;
+  --color-inverse-on-surface: #f5f5f5;
+  --color-inverse-primary: #3b82f6;
+  
+  --color-outline: #d4d4d4;
+  --color-outline-variant: #e5e5e5;
+  
+  --color-error: #dc2626;
+  --color-error-container: #f87171;
+  
+  --shadow-ambient: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+@theme inline {
+  --color-surface: var(--color-surface);
+  --color-surface-dim: var(--color-surface-dim);
+  --color-surface-container: var(--color-surface-container);
+  --color-surface-container-low: var(--color-surface-container-low);
+  --color-surface-container-lowest: var(--color-surface-container-lowest);
+  --color-surface-container-high: var(--color-surface-container-high);
+  --color-surface-container-highest: var(--color-surface-container-highest);
+  
+  --color-on-surface: var(--color-on-surface);
+  --color-on-surface-variant: var(--color-on-surface-variant);
+  
+  --color-primary: var(--color-primary);
+  --color-primary-container: var(--color-primary-container);
+  --color-on-primary: var(--color-on-primary);
+  --color-on-primary-container: var(--color-on-primary-container);
+  
+  --color-secondary: var(--color-secondary);
+  --color-secondary-container: var(--color-secondary-container);
+  --color-on-secondary: var(--color-on-secondary);
+  --color-on-secondary-container: var(--color-on-secondary-container);
+  
+  --color-tertiary: var(--color-tertiary);
+  --color-tertiary-container: var(--color-tertiary-container);
+  --color-on-tertiary: var(--color-on-tertiary);
+  --color-on-tertiary-container: var(--color-on-tertiary-container);
+  
+  --color-inverse-surface: var(--color-inverse-surface);
+  --color-inverse-on-surface: var(--color-inverse-on-surface);
+  --color-inverse-primary: var(--color-inverse-primary);
+  
+  --color-outline: var(--color-outline);
+  --color-outline-variant: var(--color-outline-variant);
+  
+  --color-error: var(--color-error);
+  --color-error-container: var(--color-error-container);
+  
+  --shadow-ambient: var(--shadow-ambient);
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-on-surface);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-dim);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-on-surface-variant);
+}
+
+/* Pulse Animation */
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Glass Effect */
+.glass {
+  background: rgba(15, 20, 25, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+[data-theme="light"] .glass {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Gradient Button */
+.btn-gradient {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-container));
+}
+
+/* Table Row Hover */
+.table-row-hover:hover {
+  background: var(--color-surface-container-high);
+}
+
+/* Fade In Animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
