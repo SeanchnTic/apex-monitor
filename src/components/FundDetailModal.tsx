@@ -339,8 +339,8 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
   })) || [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-      <div className="min-h-screen bg-surface pb-24 overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-hidden">
+      <div className="h-screen bg-surface overflow-y-auto">
         {/* Top AppBar */}
         <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-md">
           <div className="flex items-center justify-between px-4 h-14 max-w-xl mx-auto">
@@ -359,7 +359,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
           </div>
         </header>
 
-        <main className="pt-16 pb-8 px-4 max-w-xl mx-auto space-y-4">
+        <main className="pt-16 pb-28 px-4 max-w-xl mx-auto space-y-4">
           {/* Header Section */}
           <section className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
