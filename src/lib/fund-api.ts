@@ -298,3 +298,95 @@ export async function fetchNavHistory(code: string): Promise<NavHistoryItem[]> {
 export function getFundName(code: string): string {
   return fundNames[code] || `基金 ${code}`;
 }
+
+// ─── Intraday trend persistence ───────────────────────────────────────────
+
+const TREND_KEY = 'apex-fund-trend';
+const TREND_EXPIRE_HOURS = 8; // expire after market close + buffer
+
+export interface TrendPoint {
+  time: number; // Unix timestamp ms
+  navChange: number; // fund % change at this point
+}
+
+function getTrendStorage(): Record<string, Record<string, TrendPoint[]>> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(TREND_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveTrendStorage(data: Record<string, Record<string, TrendPoint[]>>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(TREND_KEY, JSON.stringify(data));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10); // "2026-04-09"
+}
+
+// Load today's trend points for a fund, optionally filtering to today's market hours only
+export function loadTrendPoints(code: string): TrendPoint[] {
+  const storage = getTrendStorage();
+  const todayData = storage[code]?.[todayKey()];
+  if (!todayData) return [];
+  
+  // Filter to market hours 09:30-15:00 today
+  const today = new Date();
+  const marketStart = new Date(today);
+  marketStart.setHours(9, 30, 0, 0);
+  const marketEnd = new Date(today);
+  marketEnd.setHours(15, 0, 0, 0);
+  
+  return todayData.filter(p => {
+    const t = new Date(p.time);
+    return t >= marketStart && t <= marketEnd;
+  });
+}
+
+// Append a new trend point for a fund
+export function appendTrendPoint(code: string, navChange: number) {
+  const storage = getTrendStorage();
+  if (!storage[code]) storage[code] = {};
+  if (!storage[code][todayKey()]) storage[code][todayKey()] = [];
+  
+  storage[code][todayKey()].push({ time: Date.now(), navChange });
+  
+  // Keep only last 100 points per fund per day
+  if (storage[code][todayKey()].length > 100) {
+    storage[code][todayKey()] = storage[code][todayKey()].slice(-100);
+  }
+  
+  // Prune old dates (keep only last 3 days)
+  const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  Object.keys(storage[code]).forEach(dateKey => {
+    const sampleTime = new Date(dateKey).getTime();
+    if (sampleTime < cutoff) delete storage[code][dateKey];
+  });
+  
+  saveTrendStorage(storage);
+}
+
+// Expire old trend data on page load (call once on init)
+export function pruneTrendStorage() {
+  const storage = getTrendStorage();
+  const cutoff = Date.now() - 3 * 24 * 60 * 60 * 1000;
+  let changed = false;
+  Object.keys(storage).forEach(code => {
+    Object.keys(storage[code]).forEach(dateKey => {
+      const sampleTime = new Date(dateKey).getTime();
+      if (sampleTime < cutoff) {
+        delete storage[code][dateKey];
+        changed = true;
+      }
+    });
+  });
+  if (changed) saveTrendStorage(storage);
+}

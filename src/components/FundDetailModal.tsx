@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FundData, fetchNavHistory, fetchSinaStockPrices, NavHistoryItem } from '@/lib/fund-api';
+import { FundData, fetchNavHistory, fetchSinaStockPrices, NavHistoryItem, loadTrendPoints } from '@/lib/fund-api';
 import dynamic from 'next/dynamic';
 
 // Dynamically import ECharts to avoid SSR issues
@@ -41,36 +41,42 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
   // Track previous navChange to avoid duplicate initial points
   const prevNavChangeRef = useRef<number | null>(null);
 
-  // Initialize and track Sina navChange as the authoritative trend source
-  // Page polling (every 60s) updates fund.navChange → new trend point
+  // Initialize with persisted trend data from localStorage, then track live navChange
   useEffect(() => {
     if (!isOpen || !fund) return;
-    
+
+    // Load today's persisted trend points (from earlier today)
+    const stored = loadTrendPoints(fund.code);
+    if (stored.length > 0) {
+      setTrendData(stored.map(p => ({ time: new Date(p.time), nav: p.navChange })));
+    }
+
+    // Set initial ref to current navChange so we don't duplicate the current point
+    prevNavChangeRef.current = fund.navChange;
+  }, [isOpen, fund?.code]);
+
+  // Track live navChange updates from page polling → append new trend point
+  useEffect(() => {
+    if (!isOpen || !fund) return;
     const current = fund.navChange;
-    if (prevNavChangeRef.current === null) {
-      // First render: initialize
-      prevNavChangeRef.current = current;
-      setTrendData([{ time: new Date(), nav: current }]);
-    } else if (current !== prevNavChangeRef.current) {
-      // Subsequent updates from page polling
+    if (current !== prevNavChangeRef.current && prevNavChangeRef.current !== null) {
       prevNavChangeRef.current = current;
       setTrendData(prev => [...prev, { time: new Date(), nav: current }]);
     }
   }, [isOpen, fund?.navChange]);
 
   // Supplementary: re-calculate implied change from fresh stock prices every 60s
-  // This gives additional data points based on real-time stock prices
   useEffect(() => {
     if (!isOpen || !fund?.position?.stocks?.length) return;
-    
+
     const interval = setInterval(async () => {
       const currentFund = fundRef.current;
       if (!currentFund?.position?.stocks?.length) return;
-      
+
       try {
         const codes = currentFund.position.stocks.map(s => s.code);
         const prices = await fetchSinaStockPrices(codes);
-        
+
         let totalWeight = 0;
         let impliedChange = 0;
         currentFund.position.stocks.forEach(stock => {
@@ -79,24 +85,24 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
           impliedChange += stockChange * stock.proportion;
           totalWeight += stock.proportion;
         });
-        
+
         if (totalWeight > 0) {
           impliedChange = impliedChange / totalWeight;
         }
-        
+
         setTrendData(prev => [...prev, { time: new Date(), nav: impliedChange }]);
       } catch {
         // ignore failed polls
       }
     }, 60000);
-    
+
     return () => clearInterval(interval);
   }, [isOpen, fund?.position?.stocks]);
 
   // Fetch NAV history when nav30 tab is opened
   useEffect(() => {
     if (!isOpen || !fund || activeTab !== 'nav30') return;
-    
+
     fetchNavHistory(fund.code).then(result => {
       setNavHistory(result);
     }).catch(() => {
@@ -122,58 +128,52 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
     const width = 320;
     const height = 160;
-    const leftPadding = 40;  // space for Y-axis labels
-    const bottomPadding = 24; // space for X-axis labels
+    const leftPadding = 40;
+    const bottomPadding = 24;
     const topPadding = 10;
     const rightPadding = 10;
-    
+
     const chartWidth = width - leftPadding - rightPadding;
     const chartHeight = height - topPadding - bottomPadding;
-    
-    // Y-axis: percentage change (TrendPoint.nav IS the % change)
+
     const minPercent = Math.min(...trendData.map(p => p.nav));
     const maxPercent = Math.max(...trendData.map(p => p.nav));
     const percentRange = maxPercent - minPercent || 0.5;
     const yPadding = percentRange * 0.1;
     const yMin = minPercent - yPadding;
     const yMax = maxPercent + yPadding;
-    
-    // Y-axis grid lines and labels (every 0.5% or adaptive)
+
     const yTickStep = percentRange > 3 ? 1 : 0.5;
     const yTicks: number[] = [];
     const yStart = Math.ceil(yMin / yTickStep) * yTickStep;
     for (let v = yStart; v <= yMax; v += yTickStep) {
       yTicks.push(Math.round(v * 100) / 100);
     }
-    
-    // Map percentage to Y coordinate
+
     const pctToY = (pct: number) => {
       return topPadding + chartHeight - ((pct - yMin) / (yMax - yMin)) * chartHeight;
     };
-    
-    // Map Date to X coordinate (09:30=0%, 15:00=100% of chart width)
+
     const dateToX = (d: Date) => {
       const minutes = d.getHours() * 60 + d.getMinutes() - (9 * 60 + 30);
-      const totalMinutes = (15 * 60 + 0) - (9 * 60 + 30); // 330
+      const totalMinutes = (15 * 60 + 0) - (9 * 60 + 30);
       return leftPadding + Math.max(0, Math.min(1, minutes / totalMinutes)) * chartWidth;
     };
-    
-    // Build SVG path using real time X coordinates
-    // trendData[].nav IS the implied % change, use directly
+
     const svgPoints = trendData.map((p) => {
       const x = dateToX(p.time);
       const y = pctToY(p.nav);
       return `${x},${y}`;
     }).join(' ');
-    
+
     const areaPoints = `${leftPadding},${height - bottomPadding} ${svgPoints} ${leftPadding + chartWidth},${height - bottomPadding}`;
-    
+
     const chartColor = isUp ? '#56f9f9' : '#ff716c';
     const lastPoint = trendData[trendData.length - 1];
     const currentPct = lastPoint.nav;
     const currentX = dateToX(lastPoint.time);
     const currentY = pctToY(currentPct);
-    
+
     return (
       <div className="relative w-full bg-surface-container-low rounded-lg overflow-hidden">
         <svg className="w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
@@ -183,8 +183,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
               <stop offset="100%" stopColor={chartColor} stopOpacity="0"></stop>
             </linearGradient>
           </defs>
-          
-          {/* Grid lines and Y-axis labels */}
+
           {yTicks.map((tick, i) => {
             const y = pctToY(tick);
             const isZero = Math.abs(tick) < 0.01;
@@ -211,8 +210,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
               </g>
             );
           })}
-          
-          {/* Zero line */}
+
           <line
             x1={leftPadding}
             y1={pctToY(0)}
@@ -221,11 +219,9 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
             stroke="#888"
             strokeWidth="1"
           />
-          
-          {/* Area fill */}
+
           <polygon points={areaPoints} fill="url(#chartGradientDetail)" />
-          
-          {/* Line */}
+
           <polyline
             points={svgPoints}
             fill="none"
@@ -234,8 +230,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-          
-          {/* X-axis labels */}
+
           {['09:30', '10:30', '11:30', '13:00', '15:00'].map((t, i) => {
             const x = leftPadding + ((i) / 4) * chartWidth;
             return (
@@ -244,13 +239,11 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
               </text>
             );
           })}
-          
-          {/* Current point dot */}
+
           <circle cx={currentX} cy={currentY} r="4" fill={chartColor} />
           <circle cx={currentX} cy={currentY} r="7" fill={chartColor} opacity="0.2" />
         </svg>
-        
-        {/* Current percentage label */}
+
         <div
           className="absolute top-1 right-2 text-xs font-bold"
           style={{ color: chartColor }}
@@ -263,18 +256,15 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
   // Render 30-day NAV history chart using ECharts
   const renderNav30Chart = () => {
-    // navHistory: { date: "2026-03-11", value: 4.7142, change: 0.63 }
-    // Reverse to show oldest first (left to right)
     const sortedHistory = [...navHistory].reverse();
-    const dates = sortedHistory.map(item => item.date.slice(5)); // "03-11"
+    const dates = sortedHistory.map(item => item.date.slice(5));
     const navs = sortedHistory.map(item => item.value);
-    
-    // Determine color based on first vs last value
+
     const firstValue = navs[0];
     const lastValue = navs[navs.length - 1];
     const isUpOverall = lastValue >= firstValue;
     const lineColor = isUpOverall ? '#56f9f9' : '#ff716c';
-    
+
     const option = {
       tooltip: {
         trigger: 'axis',
@@ -320,17 +310,16 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
         }
       }]
     };
-    
+
     return (
-      <ReactECharts 
-        option={option} 
+      <ReactECharts
+        option={option}
         style={{ height: '180px', width: '100%' }}
         opts={{ renderer: 'svg' }}
       />
     );
   };
 
-  // Get holdings from fund data
   const holdings: Holding[] = fund.position?.stocks?.map(s => ({
     code: s.code,
     name: s.name,
@@ -341,7 +330,6 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm overflow-hidden">
       <div className="h-screen bg-surface overflow-y-auto">
-        {/* Top AppBar */}
         <header className="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-md">
           <div className="flex items-center justify-between px-4 h-14 max-w-xl mx-auto">
             <div className="flex items-center gap-2">
@@ -360,7 +348,6 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
         </header>
 
         <main className="pt-16 pb-28 px-4 max-w-xl mx-auto space-y-4">
-          {/* Header Section */}
           <section className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="bg-surface-container-highest px-2 py-0.5 rounded text-[10px] font-mono text-on-surface-variant">
@@ -384,23 +371,21 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
             </div>
           </section>
 
-          {/* Tab Card */}
           <section className="bg-surface-container rounded-xl overflow-hidden">
-            {/* Tab Navigation */}
             <div className="flex border-b border-white/5">
-              <button 
+              <button
                 onClick={() => setActiveTab('trend')}
                 className={`flex-1 py-3 text-xs font-bold transition-colors ${activeTab === 'trend' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
               >
                 当日走势
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('nav30')}
                 className={`flex-1 py-3 text-xs font-bold transition-colors ${activeTab === 'nav30' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
               >
                 近30天净值
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('holdings')}
                 className={`flex-1 py-3 text-xs font-bold transition-colors ${activeTab === 'holdings' ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
               >
@@ -408,7 +393,6 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
               </button>
             </div>
 
-            {/* Tab Content */}
             <div className="p-4">
               {activeTab === 'trend' && (
                 <div className="space-y-3">
@@ -422,11 +406,9 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
               {activeTab === 'nav30' && (
                 <div className="space-y-3">
-                  {/* 30-day NAV chart - fixed at top */}
                   <div className="bg-surface-container-low rounded-lg p-2">
                     {renderNav30Chart()}
                   </div>
-                  {/* NAV history list - scrollable */}
                   <div className="max-h-[40vh] overflow-y-auto">
                     {navHistory.length > 0 ? (
                       navHistory.slice().reverse().map((item, index) => {
@@ -487,7 +469,6 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
             </div>
           </section>
 
-          {/* Holdings Preview (always show below tabs) */}
           {activeTab !== 'holdings' && holdings.length > 0 && (
             <section className="space-y-3">
               <div className="flex items-center justify-between px-1">
@@ -523,10 +504,9 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
           )}
         </main>
 
-        {/* Bottom Close Button */}
         <div className="fixed bottom-0 left-0 w-full z-50">
           <div className="max-w-xl mx-auto flex justify-center px-6 pb-8 pt-4 bg-surface/80 backdrop-blur-xl">
-            <button 
+            <button
               onClick={onClose}
               className="w-14 h-14 bg-surface-container-high rounded-full flex items-center justify-center active:scale-90 transition-transform"
             >

@@ -7,7 +7,7 @@ import BottomNav from '@/components/BottomNav';
 import IndexCard from '@/components/IndexCard';
 import FundTable from '@/components/FundTable';
 import IntelPage from '@/components/IntelPage';
-import { FundData, IndexData, fetchFundsData, fetchIndexData } from '@/lib/fund-api';
+import { FundData, IndexData, fetchFundsData, fetchIndexData, appendTrendPoint, pruneTrendStorage } from '@/lib/fund-api';
 
 // Default watched funds
 const DEFAULT_FUNDS = ['161725', '161039', '110011'];
@@ -23,6 +23,7 @@ export default function Home() {
 
   // Load saved funds from localStorage on mount
   useEffect(() => {
+    pruneTrendStorage(); // clean up old trend data
     try {
       // Try multiple possible keys for compatibility
       let saved = localStorage.getItem('myFundCodes');
@@ -94,14 +95,21 @@ export default function Home() {
         if (saved) {
           const codes = JSON.parse(saved);
           if (Array.isArray(codes) && codes.length > 0) {
-            fetchFundsData(codes).then(funds => setFundsData(funds));
+            fetchFundsData(codes).then(funds => {
+              setFundsData(funds);
+              // Record intraday trend points
+              funds.forEach(f => appendTrendPoint(f.code, f.navChange));
+            });
             return;
           }
         }
         // Fallback to current state
         const currentCodes = fundCodesRef.current;
         if (currentCodes.length > 0) {
-          fetchFundsData(currentCodes).then(funds => setFundsData(funds));
+          fetchFundsData(currentCodes).then(funds => {
+            setFundsData(funds);
+            funds.forEach(f => appendTrendPoint(f.code, f.navChange));
+          });
         }
       } catch (e) {
         console.error('Auto-refresh error:', e);
@@ -130,6 +138,7 @@ export default function Home() {
           fetchIndexData(),
         ]);
         setFundsData(funds);
+        funds.forEach(f => appendTrendPoint(f.code, f.navChange));
         setIndexData(indices);
       } catch (error) {
         console.error('Failed to fetch data:', error);
