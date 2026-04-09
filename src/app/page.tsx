@@ -81,9 +81,19 @@ export default function Home() {
   useEffect(() => {
     if (!isAutoRefresh) return;
     
-    // Refresh indices every 30 seconds
+    // Refresh indices every 30 seconds - accumulate history
     const indexInterval = setInterval(() => {
-      fetchIndexData().then(indices => setIndexData(indices));
+      fetchIndexData().then(indices => {
+        setIndexData(prev => {
+          return indices.map(newIdx => {
+            const oldIdx = prev.find(i => i.code === newIdx.code);
+            const history = oldIdx?.history || [];
+            // Add new value to history (keep last 20)
+            const newHistory = [...history, newIdx.value].slice(-20);
+            return { ...newIdx, history: newHistory };
+          });
+        });
+      });
     }, 30000);
     
     // Refresh funds every 60 seconds - always read latest from localStorage
@@ -212,6 +222,7 @@ export default function Home() {
                   value={index.value}
                   change={index.change}
                   type={getIndexType(index.change)}
+                  history={index.history}
                 />
               ))
             ) : (

@@ -6,6 +6,7 @@ export interface IndexData {
   change: number;
   changeAmount: number;
   updateTime: string;
+  history: number[];  // historical values for mini chart
 }
 
 // Fund holding stock
@@ -91,6 +92,7 @@ export async function fetchIndexData(): Promise<IndexData[]> {
             change: Math.round(change * 100) / 100,
             changeAmount: Math.round(changeAmount * 100) / 100,
             updateTime: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+            history: [],
           });
         }
       }
@@ -105,9 +107,9 @@ export async function fetchIndexData(): Promise<IndexData[]> {
 
 function getFallbackIndexData(): IndexData[] {
   return [
-    { code: '000001', name: '上证指数', value: 3346.28, change: 0.42, changeAmount: 14.05, updateTime: '15:00' },
-    { code: '399001', name: '深证成指', value: 10749.31, change: -0.18, changeAmount: -19.35, updateTime: '15:00' },
-    { code: '399006', name: '创业板指', value: 2193.45, change: 0.08, changeAmount: 1.75, updateTime: '15:00' },
+    { code: '000001', name: '上证指数', value: 3346.28, change: 0.42, changeAmount: 14.05, updateTime: '15:00', history: [] },
+    { code: '399001', name: '深证成指', value: 10749.31, change: -0.18, changeAmount: -19.35, updateTime: '15:00', history: [] },
+    { code: '399006', name: '创业板指', value: 2193.45, change: 0.08, changeAmount: 1.75, updateTime: '15:00', history: [] },
   ];
 }
 
@@ -143,8 +145,8 @@ async function fetchFundBasicInfo(code: string): Promise<{
   }
 }
 
-// Fetch stock prices from Sina (works from browser)
-async function fetchSinaStockPrices(codes: string[]): Promise<Map<string, { price: number; change: number }>> {
+// Fetch stock prices from Sina (works from browser) - exported for client-side use
+export async function fetchSinaStockPrices(codes: string[]): Promise<Map<string, { price: number; change: number }>> {
   const priceMap = new Map<string, { price: number; change: number }>();
   
   if (codes.length === 0) return priceMap;
@@ -261,6 +263,36 @@ export async function fetchFundData(code: string): Promise<FundData | null> {
 export async function fetchFundsData(codes: string[]): Promise<FundData[]> {
   const results = await Promise.all(codes.map(code => fetchFundData(code)));
   return results.filter((result): result is FundData => result !== null);
+}
+
+// Browser-side: fetch NAV history directly from 东方财富 (accessible from browser, not Vercel)
+export async function fetchNavHistory(code: string): Promise<NavHistoryItem[]> {
+  try {
+    const response = await fetch(
+      `https://api.fund.eastmoney.com/f10/lsjz?callback=&fundCode=${code}&pageIndex=1&pageSize=30&startDate=&endDate=&Plat=web`,
+      {
+        headers: {
+          'Referer': 'https://fund.eastmoney.com/',
+          'User-Agent': 'Mozilla/5.0',
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    );
+    
+    if (!response.ok) return [];
+    
+    const data = await response.json();
+    if (data.ErrCode !== 0 || !data.Data?.LSJZList) return [];
+    
+    return data.Data.LSJZList.map((item: any) => ({
+      date: item.FSRQ,
+      value: parseFloat(item.DWJZ) || 0,
+      change: parseFloat(item.JZZZL) || 0,
+    }));
+  } catch (error) {
+    console.error(`Failed to fetch nav history for ${code}:`, error);
+    return [];
+  }
 }
 
 export function getFundName(code: string): string {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FundData } from '@/lib/fund-api';
+import { FundData, fetchNavHistory, fetchSinaStockPrices, NavHistoryItem } from '@/lib/fund-api';
 import dynamic from 'next/dynamic';
 
 // Dynamically import ECharts to avoid SSR issues
@@ -22,81 +22,93 @@ interface Holding {
   change: number;
 }
 
-// Real-time trend data (will be collected over time)
+// Real-time trend data: time=actual Date for X coordinate, nav=implied fund % change calculated from holdings
 interface TrendPoint {
-  time: string;
-  nav: number;
+  time: Date;
+  nav: number; // implied fund % change, not absolute NAV
 }
 
 export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('trend');
   const [trendData, setTrendData] = useState<TrendPoint[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [navHistory, setNavHistory] = useState<NavHistoryItem[]>([]);
 
-  // Initialize trend data when modal opens
-  useEffect(() => {
-    if (isOpen && fund) {
-      // Generate initial trend data based on current nav
-      const initialData: TrendPoint[] = [];
-      const baseNav = fund.nav;
-      const changePercent = fund.navChange / 100;
-      
-      // Generate points from market open (09:30) to now
-      const times = ['09:30', '10:00', '10:30', '11:00', '11:30', '13:00', '13:30', '14:00', '14:30', '15:00'];
-      const currentHour = new Date().getHours();
-      const currentMinute = new Date().getMinutes();
-      const currentTime = currentHour * 60 + currentMinute;
-      
-      times.forEach((time, index) => {
-        const [h, m] = time.split(':').map(Number);
-        const timeMinutes = h * 60 + m;
-        
-        if (timeMinutes <= currentTime) {
-          // Generate a realistic looking trend
-          const progress = index / (times.length - 1);
-          const randomVariation = (Math.random() - 0.5) * 0.02;
-          const nav = baseNav * (1 - changePercent * (1 - progress)) + randomVariation;
-          initialData.push({ time, nav: Number(nav.toFixed(4)) });
-        }
-      });
-      
-      // Add current point
-      initialData.push({
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        nav: fund.nav
-      });
-      
-      setTrendData(initialData);
-      setCurrentIndex(initialData.length - 1);
-    }
-  }, [isOpen, fund]);
+  // Ref to keep fund fresh inside interval callback
+  const fundRef = useRef(fund);
+  useEffect(() => { fundRef.current = fund; }, [fund]);
 
-  // Collect real-time data every 60 seconds
+  // Track previous navChange to avoid duplicate initial points
+  const prevNavChangeRef = useRef<number | null>(null);
+
+  // Initialize and track Sina navChange as the authoritative trend source
+  // Page polling (every 60s) updates fund.navChange → new trend point
   useEffect(() => {
     if (!isOpen || !fund) return;
     
-    const interval = setInterval(() => {
-      const newPoint: TrendPoint = {
-        time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        nav: fund.nav
-      };
-      setTrendData(prev => [...prev, newPoint]);
-      setCurrentIndex(prev => prev + 1);
+    const current = fund.navChange;
+    if (prevNavChangeRef.current === null) {
+      // First render: initialize
+      prevNavChangeRef.current = current;
+      setTrendData([{ time: new Date(), nav: current }]);
+    } else if (current !== prevNavChangeRef.current) {
+      // Subsequent updates from page polling
+      prevNavChangeRef.current = current;
+      setTrendData(prev => [...prev, { time: new Date(), nav: current }]);
+    }
+  }, [isOpen, fund?.navChange]);
+
+  // Supplementary: re-calculate implied change from fresh stock prices every 60s
+  // This gives additional data points based on real-time stock prices
+  useEffect(() => {
+    if (!isOpen || !fund?.position?.stocks?.length) return;
+    
+    const interval = setInterval(async () => {
+      const currentFund = fundRef.current;
+      if (!currentFund?.position?.stocks?.length) return;
+      
+      try {
+        const codes = currentFund.position.stocks.map(s => s.code);
+        const prices = await fetchSinaStockPrices(codes);
+        
+        let totalWeight = 0;
+        let impliedChange = 0;
+        currentFund.position.stocks.forEach(stock => {
+          const priceData = prices.get(stock.code);
+          const stockChange = priceData?.change ?? stock.change;
+          impliedChange += stockChange * stock.proportion;
+          totalWeight += stock.proportion;
+        });
+        
+        if (totalWeight > 0) {
+          impliedChange = impliedChange / totalWeight;
+        }
+        
+        setTrendData(prev => [...prev, { time: new Date(), nav: impliedChange }]);
+      } catch {
+        // ignore failed polls
+      }
     }, 60000);
     
     return () => clearInterval(interval);
-  }, [isOpen, fund]);
+  }, [isOpen, fund?.position?.stocks]);
+
+  // Fetch NAV history when nav30 tab is opened
+  useEffect(() => {
+    if (!isOpen || !fund || activeTab !== 'nav30') return;
+    
+    fetchNavHistory(fund.code).then(result => {
+      setNavHistory(result);
+    }).catch(() => {
+      setNavHistory([]);
+    });
+  }, [isOpen, fund?.code, activeTab]);
 
   if (!isOpen || !fund) return null;
 
   const isUp = fund.navChange >= 0;
   const changeColor = isUp ? 'text-secondary' : 'text-tertiary';
   const borderColor = isUp ? 'border-l-secondary' : 'border-l-tertiary';
-
-  // Calculate chart range
-  const navValues = trendData.map(p => p.nav);
-  const minNav = Math.min(...navValues) * 0.998;
-  const maxNav = Math.max(...navValues) * 1.002;
 
   // Render Trend Chart
   const renderTrendChart = () => {
@@ -109,41 +121,142 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
     }
 
     const width = 320;
-    const height = 120;
-    const padding = 10;
+    const height = 160;
+    const leftPadding = 40;  // space for Y-axis labels
+    const bottomPadding = 24; // space for X-axis labels
+    const topPadding = 10;
+    const rightPadding = 10;
     
-    const points = trendData.map((p, i) => {
-      const x = padding + (i / (trendData.length - 1)) * (width - padding * 2);
-      const y = height - padding - ((p.nav - minNav) / (maxNav - minNav)) * (height - padding * 2);
+    const chartWidth = width - leftPadding - rightPadding;
+    const chartHeight = height - topPadding - bottomPadding;
+    
+    // Y-axis: percentage change (TrendPoint.nav IS the % change)
+    const minPercent = Math.min(...trendData.map(p => p.nav));
+    const maxPercent = Math.max(...trendData.map(p => p.nav));
+    const percentRange = maxPercent - minPercent || 0.5;
+    const yPadding = percentRange * 0.1;
+    const yMin = minPercent - yPadding;
+    const yMax = maxPercent + yPadding;
+    
+    // Y-axis grid lines and labels (every 0.5% or adaptive)
+    const yTickStep = percentRange > 3 ? 1 : 0.5;
+    const yTicks: number[] = [];
+    const yStart = Math.ceil(yMin / yTickStep) * yTickStep;
+    for (let v = yStart; v <= yMax; v += yTickStep) {
+      yTicks.push(Math.round(v * 100) / 100);
+    }
+    
+    // Map percentage to Y coordinate
+    const pctToY = (pct: number) => {
+      return topPadding + chartHeight - ((pct - yMin) / (yMax - yMin)) * chartHeight;
+    };
+    
+    // Map Date to X coordinate (09:30=0%, 15:00=100% of chart width)
+    const dateToX = (d: Date) => {
+      const minutes = d.getHours() * 60 + d.getMinutes() - (9 * 60 + 30);
+      const totalMinutes = (15 * 60 + 0) - (9 * 60 + 30); // 330
+      return leftPadding + Math.max(0, Math.min(1, minutes / totalMinutes)) * chartWidth;
+    };
+    
+    // Build SVG path using real time X coordinates
+    // trendData[].nav IS the implied % change, use directly
+    const svgPoints = trendData.map((p) => {
+      const x = dateToX(p.time);
+      const y = pctToY(p.nav);
       return `${x},${y}`;
     }).join(' ');
-
-    const areaPoints = `${padding},${height - padding} ${points} ${width - padding},${height - padding}`;
-
+    
+    const areaPoints = `${leftPadding},${height - bottomPadding} ${svgPoints} ${leftPadding + chartWidth},${height - bottomPadding}`;
+    
+    const chartColor = isUp ? '#56f9f9' : '#ff716c';
+    const lastPoint = trendData[trendData.length - 1];
+    const currentPct = lastPoint.nav;
+    const currentX = dateToX(lastPoint.time);
+    const currentY = pctToY(currentPct);
+    
     return (
-      <div className="relative h-48 w-full bg-surface-container-low rounded-lg p-2 overflow-hidden">
-        {/* Grid Lines */}
-        <div className="absolute inset-0 flex flex-col justify-between opacity-20 p-4">
-          <div className="w-full border-t border-white"></div>
-          <div className="w-full border-t border-white"></div>
-          <div className="w-full border-t border-white"></div>
-          <div className="w-full border-t border-white"></div>
-        </div>
-        
-        {/* Chart SVG */}
-        <svg className="absolute inset-0 w-full h-full px-2" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
+      <div className="relative w-full bg-surface-container-low rounded-lg overflow-hidden">
+        <svg className="w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
           <defs>
             <linearGradient id="chartGradientDetail" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={isUp ? "#56f9f9" : "#ff716c"} stopOpacity="0.3"></stop>
-              <stop offset="100%" stopColor={isUp ? "#56f9f9" : "#ff716c"} stopOpacity="0"></stop>
+              <stop offset="0%" stopColor={chartColor} stopOpacity="0.3"></stop>
+              <stop offset="100%" stopColor={chartColor} stopOpacity="0"></stop>
             </linearGradient>
           </defs>
-          <polygon points={areaPoints} fill={`url(#chartGradientDetail)`} />
-          <polyline points={points} fill="none" stroke={isUp ? "#56f9f9" : "#ff716c"} strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+          
+          {/* Grid lines and Y-axis labels */}
+          {yTicks.map((tick, i) => {
+            const y = pctToY(tick);
+            const isZero = Math.abs(tick) < 0.01;
+            return (
+              <g key={i}>
+                <line
+                  x1={leftPadding}
+                  y1={y}
+                  x2={leftPadding + chartWidth}
+                  y2={y}
+                  stroke={isZero ? '#888' : '#444'}
+                  strokeWidth={isZero ? 1 : 0.5}
+                  strokeDasharray={isZero ? 'none' : '3,3'}
+                />
+                <text
+                  x={leftPadding - 4}
+                  y={y + 3}
+                  textAnchor="end"
+                  fontSize="9"
+                  fill="#adaaaa"
+                >
+                  {tick >= 0 ? `+${tick.toFixed(1)}` : tick.toFixed(1)}%
+                </text>
+              </g>
+            );
+          })}
+          
+          {/* Zero line */}
+          <line
+            x1={leftPadding}
+            y1={pctToY(0)}
+            x2={leftPadding + chartWidth}
+            y2={pctToY(0)}
+            stroke="#888"
+            strokeWidth="1"
+          />
+          
+          {/* Area fill */}
+          <polygon points={areaPoints} fill="url(#chartGradientDetail)" />
+          
+          {/* Line */}
+          <polyline
+            points={svgPoints}
+            fill="none"
+            stroke={chartColor}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          
+          {/* X-axis labels */}
+          {['09:30', '10:30', '11:30', '13:00', '15:00'].map((t, i) => {
+            const x = leftPadding + ((i) / 4) * chartWidth;
+            return (
+              <text key={i} x={x} y={height - 6} textAnchor="middle" fontSize="9" fill="#adaaaa">
+                {t}
+              </text>
+            );
+          })}
+          
+          {/* Current point dot */}
+          <circle cx={currentX} cy={currentY} r="4" fill={chartColor} />
+          <circle cx={currentX} cy={currentY} r="7" fill={chartColor} opacity="0.2" />
         </svg>
         
-        {/* Current Point Marker */}
-        <div className="absolute top-[20px] right-[20px] w-3 h-3 bg-primary rounded-full ring-4 ring-primary/20"></div>
+        {/* Current percentage label */}
+        <div
+          className="absolute top-1 right-2 text-xs font-bold"
+          style={{ color: chartColor }}
+        >
+          {currentPct >= 0 ? '+' : ''}{currentPct.toFixed(2)}%
+        </div>
       </div>
     );
   };
@@ -152,7 +265,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
   const renderNav30Chart = () => {
     // navHistory: { date: "2026-03-11", value: 4.7142, change: 0.63 }
     // Reverse to show oldest first (left to right)
-    const sortedHistory = [...(fund.navHistory || [])].reverse();
+    const sortedHistory = [...navHistory].reverse();
     const dates = sortedHistory.map(item => item.date.slice(5)); // "03-11"
     const navs = sortedHistory.map(item => item.value);
     
@@ -309,36 +422,38 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
               {activeTab === 'nav30' && (
                 <div className="space-y-3">
-                  {/* 30-day NAV chart */}
+                  {/* 30-day NAV chart - fixed at top */}
                   <div className="bg-surface-container-low rounded-lg p-2">
                     {renderNav30Chart()}
                   </div>
-                  {/* NAV history list */}
-                  {fund.navHistory && fund.navHistory.length > 0 ? (
-                    fund.navHistory.slice().reverse().map((item, index) => {
-                      const isUpDay = item.change >= 0;
-                      return (
-                        <div key={index} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                          <span className="text-xs text-on-surface-variant">{item.date.slice(5)}</span>
-                          <div className="flex items-center gap-4">
-                            <span className="font-mono text-sm">{item.value.toFixed(4)}</span>
-                            <span className={`font-mono text-xs ${isUpDay ? 'text-secondary' : 'text-tertiary'}`}>
-                              {isUpDay ? '+' : ''}{item.change.toFixed(2)}%
-                            </span>
+                  {/* NAV history list - scrollable */}
+                  <div className="max-h-[40vh] overflow-y-auto">
+                    {navHistory.length > 0 ? (
+                      navHistory.slice().reverse().map((item, index) => {
+                        const isUpDay = item.change >= 0;
+                        return (
+                          <div key={index} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                            <span className="text-xs text-on-surface-variant">{item.date.slice(5)}</span>
+                            <div className="flex items-center gap-4">
+                              <span className="font-mono text-sm">{item.value.toFixed(4)}</span>
+                              <span className={`font-mono text-xs ${isUpDay ? 'text-secondary' : 'text-tertiary'}`}>
+                                {isUpDay ? '+' : ''}{item.change.toFixed(2)}%
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="py-4 text-center text-on-surface-variant text-sm">
-                      暂无历史净值数据
-                    </div>
-                  )}
+                        );
+                      })
+                    ) : (
+                      <div className="py-4 text-center text-on-surface-variant text-sm">
+                        暂无历史净值数据
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               {activeTab === 'holdings' && (
-                <div className="space-y-2">
+                <div className="max-h-[50vh] overflow-y-auto space-y-2">
                   {holdings.length === 0 ? (
                     <div className="py-8 text-center text-on-surface-variant text-sm">
                       暂无持仓数据

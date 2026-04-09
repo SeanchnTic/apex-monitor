@@ -5,9 +5,10 @@ interface IndexCardProps {
   value: number;
   change: number;
   type: 'up' | 'down' | 'flat';
+  history?: number[];  // historical values for mini chart
 }
 
-export default function IndexCard({ name, value, change, type }: IndexCardProps) {
+export default function IndexCard({ name, value, change, type, history = [] }: IndexCardProps) {
   const isPositive = change >= 0;
   
   const getIcon = () => {
@@ -22,6 +23,34 @@ export default function IndexCard({ name, value, change, type }: IndexCardProps)
     if (type === 'flat') return 'text-on-surface-variant bg-surface-container-high';
     return isPositive ? 'text-secondary bg-secondary/20' : 'text-tertiary bg-tertiary/20';
   };
+
+  // Build SVG path from history
+  const buildPath = () => {
+    if (history.length < 2) {
+      // Fallback static curve when no history
+      return type === 'up' ? 'M0 40 Q 20 10 40 25 T 100 5' : 
+             type === 'down' ? 'M0 5 Q 30 40 60 10 T 100 35' : 
+             'M0 20 Q 25 18 50 22 T 100 20';
+    }
+    
+    const values = history.slice(-20); // last 20 points max
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+    const width = 100;
+    const height = 40;
+    const padding = 4;
+    
+    const points = values.map((v, i) => {
+      const x = padding + (i / (values.length - 1)) * (width - padding * 2);
+      const y = height - padding - ((v - min) / range) * (height - padding * 2);
+      return `${x},${y}`;
+    });
+    
+    return `M${points.join(' L')}`;
+  };
+
+  const strokeColor = type === 'up' ? '#ef4444' : type === 'down' ? '#22c55e' : '#8b949e';
 
   return (
     <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-transparent transition-transform hover:scale-[1.02] duration-300 group">
@@ -41,7 +70,7 @@ export default function IndexCard({ name, value, change, type }: IndexCardProps)
           {isPositive ? '+' : ''}{change.toFixed(2)}%
         </span>
       </div>
-      {/* Mini Chart Simulation */}
+      {/* Mini Chart - Real history or fallback */}
       <div className="mt-6 h-16 w-full">
         <div className={`w-full h-full bg-gradient-to-t ${
           type === 'up' ? 'from-red-500/10 to-transparent' : 
@@ -50,11 +79,9 @@ export default function IndexCard({ name, value, change, type }: IndexCardProps)
         } relative overflow-hidden rounded-lg`}>
           <svg className="absolute bottom-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 40">
             <path 
-              d={type === 'up' ? 'M0 40 Q 20 10 40 25 T 100 5' : 
-                 type === 'down' ? 'M0 5 Q 30 40 60 10 T 100 35' : 
-                 'M0 20 Q 25 18 50 22 T 100 20'} 
+              d={buildPath()}
               fill="none" 
-              stroke={type === 'up' ? '#ef4444' : type === 'down' ? '#22c55e' : '#8b949e'} 
+              stroke={strokeColor} 
               strokeWidth="2"
             />
           </svg>

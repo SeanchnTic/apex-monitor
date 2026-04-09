@@ -11,57 +11,53 @@ export async function GET(
   }
   
   try {
-    // 1. Fetch basic fund info from 天天基金
-    const basicResponse = await fetch(`https://fundgz.1234567.com.cn/js/${code}.js`, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
+    // Fetch fund data from Sina (browser-accessible, no CORS issues)
+    // Sina fund format: f_CODE = "name,current,NAV,yesterdayNAV,date,changeAmount"
+    const response = await fetch(`https://hq.sinajs.cn/list=f_${code}`, {
+      headers: {
+        'Referer': 'https://finance.sina.com.cn',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      signal: AbortSignal.timeout(8000),
     });
     
-    let basicData = null;
-    if (basicResponse.ok) {
-      const text = await basicResponse.text();
-      const match = text.match(/jsonpgz\((\{.+\})\)/);
-      if (match) {
-        basicData = JSON.parse(match[1]);
-      }
+    if (!response.ok) {
+      return NextResponse.json({ error: 'Fund not found' }, { status: 404 });
     }
     
-    // 2. Fetch 30-day NAV history from 东方财富
-    const historyResponse = await fetch(
-      `https://api.fund.eastmoney.com/f10/lsjz?callback=&fundCode=${code}&pageIndex=1&pageSize=30&startDate=&endDate=&Plat=web`,
-      {
-        headers: {
-          'Referer': 'https://fund.eastmoney.com/',
-          'User-Agent': 'Mozilla/5.0',
-        },
-        signal: AbortSignal.timeout(8000),
-      }
-    );
+    const text = await response.text();
+    // Decode GBK
+    const iconv = await import('iconv-lite');
+    const decoded = iconv.decode(Buffer.from(await response.arrayBuffer()), 'gbk');
+    const match = decoded.match(/="([^"]+)"/);
     
-    let navHistory: { date: string; value: number; change: number }[] = [];
-    if (historyResponse.ok) {
-      const historyJson = await historyResponse.json();
-      if (historyJson.ErrCode === 0 && historyJson.Data?.LSJZList) {
-        navHistory = historyJson.Data.LSJZList.map((item: any) => ({
-          date: item.FSRQ,                          // "2026-03-11"
-          value: parseFloat(item.DWJZ) || 0,        // 单位净值
-          change: parseFloat(item.JZZZL) || 0,      // 涨跌幅 %
-        }));
-      }
+    if (!match) {
+      return NextResponse.json({ error: 'Invalid response' }, { status: 500 });
     }
     
-    // Build response
-    const result = {
-      fundcode: basicData?.fundcode || code,
-      name: basicData?.name || `基金 ${code}`,
-      dwjz: basicData?.dwjz || '0',
-      gsz: basicData?.gsz || '0',
-      gszzl: basicData?.gszzl || '0',
-      gztime: basicData?.gztime || '',
-      jzrq: basicData?.jzrq || '',
-      navHistory,
-    };
+    const fields = match[1].split(',');
+    if (fields.length < 6) {
+      return NextResponse.json({ error: 'Insufficient data' }, { status: 500 });
+    }
     
-    return NextResponse.json(result);
+    const [name, current, nav, yesterdayNav, date, changeAmount] = fields;
+    const currentVal = parseFloat(current) || 0;
+    const navVal = parseFloat(nav) || 0;
+    const yesterdayNavVal = parseFloat(yesterdayNav) || 0;
+    const changeAmt = parseFloat(changeAmount) || 0;
+    // NAV change percent: current/yesterdayNAV - 1, then * 100
+    const navChange = yesterdayNavVal > 0 ? ((currentVal - yesterdayNavVal) / yesterdayNavVal * 100) : 0;
+    
+    return NextResponse.json({
+      fundcode: code,
+      name: name,
+      dwjz: nav,          // 昨日净值/单位净值
+      gsz: current,        // 估算当前净值
+      gszzl: navChange.toFixed(2),  // 涨跌幅 %
+      gztime: new Date().toLocaleString('zh-CN'),  // 更新时间
+      jzrq: date,         // 日期
+      navHistory: [],      // 历史净值由客户端直接获取
+    });
   } catch (error) {
     console.error(`Failed to fetch fund ${code}:`, error);
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
