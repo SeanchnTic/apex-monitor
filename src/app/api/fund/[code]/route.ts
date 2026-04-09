@@ -25,10 +25,10 @@ export async function GET(
       return NextResponse.json({ error: 'Fund not found' }, { status: 404 });
     }
     
-    const text = await response.text();
-    // Decode GBK
+    // Read as binary first, then decode GBK
     const iconv = await import('iconv-lite');
-    const decoded = iconv.decode(Buffer.from(await response.arrayBuffer()), 'gbk');
+    const buffer = await response.arrayBuffer();
+    const decoded = iconv.decode(Buffer.from(buffer), 'gbk');
     const match = decoded.match(/="([^"]+)"/);
     
     if (!match) {
