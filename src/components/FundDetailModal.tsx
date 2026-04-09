@@ -256,9 +256,25 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
   // Render 30-day NAV history chart using ECharts
   const renderNav30Chart = () => {
+    if (navHistory.length === 0) {
+      return (
+        <div className="h-48 flex items-center justify-center text-on-surface-variant">
+          暂无数据，请稍后刷新
+        </div>
+      );
+    }
+    
     const sortedHistory = [...navHistory].reverse();
     const dates = sortedHistory.map(item => item.date.slice(5));
     const navs = sortedHistory.map(item => item.value);
+
+    if (navs.length === 0) {
+      return (
+        <div className="h-48 flex items-center justify-center text-on-surface-variant">
+          暂无数据
+        </div>
+      );
+    }
 
     const firstValue = navs[0];
     const lastValue = navs[navs.length - 1];

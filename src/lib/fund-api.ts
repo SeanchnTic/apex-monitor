@@ -307,7 +307,7 @@ export async function fetchFundData(code: string): Promise<FundData | null> {
     navChangeAmount: Math.round(yesterdayNav * navChange / 100 * 10000) / 10000,
     updateTime: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
     yesterdayNav,
-    navHistory: basicInfo.navHistory,
+    navHistory: basicInfo?.navHistory || [],
     position,
   };
 }
@@ -321,7 +321,7 @@ export async function fetchFundsData(codes: string[]): Promise<FundData[]> {
 export async function fetchNavHistory(code: string): Promise<NavHistoryItem[]> {
   try {
     const response = await fetch(
-      `https://api.fund.eastmoney.com/f10/lsjz?callback=&fundCode=${code}&pageIndex=1&pageSize=30&startDate=&endDate=&Plat=web`,
+      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=1&pageSize=30&startDate=&endDate=&Plat=web`,
       {
         headers: {
           'Referer': 'https://fund.eastmoney.com/',

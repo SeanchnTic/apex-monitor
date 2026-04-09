@@ -59,7 +59,7 @@ export async function GET(
     // 格式: [[w1,w2,...], [w1,w2,...], ...] 每行是一个时间点，每列是一只股票
     // 取最后一行(最新)，长度应该等于股票数量
     let stockWeights: number[] = [];
-    const positionsMatch = jsContent.match(/var Data_stockPositions\s*=\s*(\[.*?\])/s);
+    const positionsMatch = jsContent.match(/var Data_stockPositions\s*=\s*(\[.*?\])/);
     if (positionsMatch) {
       try {
         const parsed = JSON.parse(positionsMatch[1]);
@@ -83,7 +83,7 @@ export async function GET(
     // ── 4. Parse Data_netWorthTrend (最新净值) ───────────────────────────────
     // 格式: [{"x":timestamp,"y":3.6466,...}, ...]  数组是最老→最新，取最后
     let latestNav = 1.0;
-    const navMatch = jsContent.match(/var Data_netWorthTrend\s*=\s*(\[.*?\]);/s);
+    const navMatch = jsContent.match(/var Data_netWorthTrend\s*=\s*(\[.*?\]);/);
     if (navMatch) {
       try {
         const parsed = JSON.parse(navMatch[1]);
