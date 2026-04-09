@@ -24,21 +24,23 @@ export default function IndexCard({ name, value, change, type }: IndexCardProps)
   };
 
   return (
-    <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border-transparent transition-transform hover:scale-[1.02] duration-300 group">
-      <div className="flex justify-between items-start mb-4">
-        <span className="text-xs font-bold text-on-surface-variant uppercase tracking-widest">
-          {name}
-        </span>
-        <span className={`material-symbols-outlined ${type === 'up' ? 'text-secondary' : type === 'down' ? 'text-tertiary' : 'text-on-surface-variant'}`}>
+    <div className="flex-none bg-surface-container-lowest px-5 py-4 rounded-xl border-transparent transition-transform hover:scale-[1.02] duration-300 group min-w-[200px]">
+      <div className="flex items-center gap-3">
+        <div>
+          <span className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest block">
+            {name}
+          </span>
+          <div className="flex items-baseline gap-2 mt-1">
+            <span className="text-2xl font-black tracking-tighter tabular-nums">
+              {value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${getColorClass()}`}>
+              {isPositive ? '+' : ''}{change.toFixed(2)}%
+            </span>
+          </div>
+        </div>
+        <span className={`material-symbols-outlined text-lg ml-auto ${type === 'up' ? 'text-secondary' : type === 'down' ? 'text-tertiary' : 'text-on-surface-variant'}`}>
           {getIcon()}
-        </span>
-      </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-3xl font-black tracking-tighter tabular-nums">
-          {value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </span>
-        <span className={`text-sm font-bold px-2 py-0.5 rounded-full ${getColorClass()}`}>
-          {isPositive ? '+' : ''}{change.toFixed(2)}%
         </span>
       </div>
     </div>

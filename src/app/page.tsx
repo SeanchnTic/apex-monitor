@@ -203,8 +203,8 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Bento Grid: Major Indices */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          {/* Single Row: Major Indices */}
+          <div className="flex gap-4 overflow-x-auto pb-2 mb-12">
             {indexData.length > 0 ? (
               indexData.map((index) => (
                 <IndexCard 
