@@ -201,43 +201,76 @@ export async function fetchSinaStockPrices(codes: string[]): Promise<Map<string,
 }
 
 // Fetch fund holdings via API route
-async function fetchFundHoldings(code: string): Promise<FundPosition | null> {
+async function fetchFundHoldings(code: string): Promise<{ position: FundPosition | null; latestNav: number }> {
   try {
     // Use our own API to fetch holdings (bypasses CORS)
     const response = await fetch(`/api/fund/${code}/holdings`, {
       signal: AbortSignal.timeout(8000),
     });
     
-    if (!response.ok) return null;
+    if (!response.ok) return { position: null, latestNav: 1.0 };
     
     const data = await response.json();
     
-    return data.position;
+    return { position: data.position, latestNav: data.latestNav || 1.0 };
   } catch (error) {
     console.error(`Failed to fetch holdings for ${code}:`, error);
-    return null;
+    return { position: null, latestNav: 1.0 };
   }
+}
+
+// Fetch stock prices via our API route (bypasses Sina CORS) - exported for client use
+export async function fetchStockPricesViaAPI(codes: string[]): Promise<Map<string, { price: number; change: number }>> {
+  const priceMap = new Map<string, { price: number; change: number }>();
+  if (codes.length === 0) return priceMap;
+  
+  try {
+    // Convert to Sina format: sz300308,sh600000
+    const sinajsCodes = codes.map(c => {
+      const code = c.replace(/\D/g, '');
+      if (code.startsWith('6')) return `sh${code}`;
+      if (code.startsWith('0') || code.startsWith('3')) return `sz${code}`;
+      return `sh${code}`;
+    }).join(',');
+    
+    const response = await fetch(`/api/stocks/${sinajsCodes}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    
+    if (!response.ok) return priceMap;
+    
+    const data = await response.json();
+    
+    // data is { "300308": { price, change }, "600000": { price, change }, ... }
+    Object.entries(data).forEach(([code, info]: [string, any]) => {
+      priceMap.set(code, { price: info.price, change: info.change });
+    });
+  } catch (error) {
+    console.error('Failed to fetch stock prices via API:', error);
+  }
+  
+  return priceMap;
 }
 
 // Main function
 export async function fetchFundData(code: string): Promise<FundData | null> {
-  // 1. Get yesterday's NAV from Sina
+  // 1. Get fund name from Sina (Sina NAV is stale, only use for name)
   const basicInfo = await fetchFundBasicInfo(code);
-  if (!basicInfo) return null;
-  
-  const fundName = basicInfo.name || fundNames[code] || `基金 ${code}`;
-  const yesterdayNav = basicInfo.yesterdayNav; // this is the real yesterday NAV from Sina
+  const fundName = basicInfo?.name || fundNames[code] || `基金 ${code}`;
 
-  // 2. Get holdings from EastMoney (browser-side)
-  const position = await fetchFundHoldings(code);
+  // 2. Get holdings from EastMoney + latest NAV (Data_netWorthTrend[0])
+  const { position, latestNav } = await fetchFundHoldings(code);
   
+  // latestNav from pingzhongdata Data_netWorthTrend = correct yesterday NAV (7.849)
+  const yesterdayNav = latestNav;
+
   // 3. Calculate real-time implied NAV change from holdings
   let impliedChange = 0;
   let totalStockWeight = 0; // e.g., 0.85 for 85%
   
   if (position && position.stocks.length > 0) {
     const stockCodes = position.stocks.map(s => s.code);
-    const stockPrices = await fetchSinaStockPrices(stockCodes);
+    const stockPrices = await fetchStockPricesViaAPI(stockCodes);
     
     // Update stock change with real-time price
     position.stocks.forEach(stock => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FundData, fetchNavHistory, fetchSinaStockPrices, NavHistoryItem, loadTrendPoints } from '@/lib/fund-api';
+import { FundData, fetchNavHistory, fetchStockPricesViaAPI, NavHistoryItem, loadTrendPoints } from '@/lib/fund-api';
 import dynamic from 'next/dynamic';
 
 // Dynamically import ECharts to avoid SSR issues
@@ -75,7 +75,7 @@ export default function FundDetailModal({ fund, isOpen, onClose }: FundDetailMod
 
       try {
         const codes = currentFund.position.stocks.map(s => s.code);
-        const prices = await fetchSinaStockPrices(codes);
+        const prices = await fetchStockPricesViaAPI(codes);
 
         let totalWeight = 0;
         let impliedChange = 0;
