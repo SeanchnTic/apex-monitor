@@ -317,30 +317,16 @@ export async function fetchFundsData(codes: string[]): Promise<FundData[]> {
   return results.filter((result): result is FundData => result !== null);
 }
 
-// Browser-side: fetch NAV history directly from 东方财富 (accessible from browser, not Vercel)
+// Server-side: fetch NAV history via API route
 export async function fetchNavHistory(code: string): Promise<NavHistoryItem[]> {
   try {
-    const response = await fetch(
-      `https://api.fund.eastmoney.com/f10/lsjz?fundCode=${code}&pageIndex=1&pageSize=30&startDate=&endDate=&Plat=web`,
-      {
-        headers: {
-          'Referer': 'https://fund.eastmoney.com/',
-          'User-Agent': 'Mozilla/5.0',
-        },
-        signal: AbortSignal.timeout(8000),
-      }
-    );
+    const response = await fetch(`/api/fund/${code}/navhistory`, {
+      signal: AbortSignal.timeout(10000),
+    });
     
     if (!response.ok) return [];
     
-    const data = await response.json();
-    if (data.ErrCode !== 0 || !data.Data?.LSJZList) return [];
-    
-    return data.Data.LSJZList.map((item: any) => ({
-      date: item.FSRQ,
-      value: parseFloat(item.DWJZ) || 0,
-      change: parseFloat(item.JZZZL) || 0,
-    }));
+    return await response.json();
   } catch (error) {
     console.error(`Failed to fetch nav history for ${code}:`, error);
     return [];
