@@ -265,13 +265,14 @@ export async function fetchFundData(code: string): Promise<FundData | null> {
   const yesterdayNav = latestNav;
 
   // 3. Calculate real-time implied NAV change from holdings
+  //    If stocks is empty (e.g., ETF联接基金), fall back to official fundgz estimate
   let impliedChange = 0;
   let totalStockWeight = 0; // e.g., 0.85 for 85%
-  
+
   if (position && position.stocks.length > 0) {
     const stockCodes = position.stocks.map(s => s.code);
     const stockPrices = await fetchStockPricesViaAPI(stockCodes);
-    
+
     // Update stock change with real-time price
     position.stocks.forEach(stock => {
       const priceData = stockPrices.get(stock.code);
@@ -279,23 +280,39 @@ export async function fetchFundData(code: string): Promise<FundData | null> {
         stock.change = priceData.change;
       }
     });
-    
+
     // Calculate implied fund change = Σ(stockChange × stockWeight)
     // stockPosition is percentage (e.g., 85 = 85%), divide by 100 to get ratio
     const stockPositionRatio = position.stockPosition / 100; // e.g., 0.85
     const perStockWeight = position.stocks.length > 0 ? stockPositionRatio / position.stocks.length : 0;
-    
+
     position.stocks.forEach(stock => {
       impliedChange += stock.change * perStockWeight;
       totalStockWeight += perStockWeight;
     });
-    
+
     // Normalize by actual total weight
     if (totalStockWeight > 0) {
       impliedChange = impliedChange / totalStockWeight;
     }
+  } else {
+    // No stock holdings (e.g., ETF联接基金) — fetch official estimate from fundgz
+    try {
+      const fundgzResp = await fetch(
+        `https://fundgz.1234567.com.cn/js/${code}.js?rt=${Date.now()}`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(5000) }
+      );
+      if (fundgzResp.ok) {
+        const text = await fundgzResp.text();
+        const m = text.match(/jsonpgz\((\{.+\})\)/);
+        if (m) {
+          const gzData = JSON.parse(m[1]);
+          impliedChange = parseFloat(gzData.gszzl) || 0;
+        }
+      }
+    } catch { /* use 0 */ }
   }
-  
+
   const navChange = Math.round(impliedChange * 100) / 100;
   const nav = Math.round(yesterdayNav * (1 + navChange / 100) * 10000) / 10000;
   
