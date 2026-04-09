@@ -221,31 +221,50 @@ async function fetchFundHoldings(code: string): Promise<FundPosition | null> {
 
 // Main function
 export async function fetchFundData(code: string): Promise<FundData | null> {
-  // 1. Get basic fund info + navHistory
+  // 1. Get yesterday's NAV from Sina
   const basicInfo = await fetchFundBasicInfo(code);
+  if (!basicInfo) return null;
   
-  const fundName = basicInfo?.name || fundNames[code] || `基金 ${code}`;
-  const yesterdayNav = basicInfo?.yesterdayNav || 1.0;
-  const nav = basicInfo?.nav || yesterdayNav;
-  const navChange = basicInfo?.navChange || 0;
-  const updateTime = basicInfo?.updateTime || '';
-  const navHistory = basicInfo?.navHistory || [];
-  
-  // 2. Get holdings
+  const fundName = basicInfo.name || fundNames[code] || `基金 ${code}`;
+  const yesterdayNav = basicInfo.yesterdayNav; // this is the real yesterday NAV from Sina
+
+  // 2. Get holdings from EastMoney (browser-side)
   const position = await fetchFundHoldings(code);
   
-  // 3. Get real-time stock prices
+  // 3. Calculate real-time implied NAV change from holdings
+  let impliedChange = 0;
+  let totalStockWeight = 0; // e.g., 0.85 for 85%
+  
   if (position && position.stocks.length > 0) {
     const stockCodes = position.stocks.map(s => s.code);
     const stockPrices = await fetchSinaStockPrices(stockCodes);
     
+    // Update stock change with real-time price
     position.stocks.forEach(stock => {
       const priceData = stockPrices.get(stock.code);
       if (priceData) {
         stock.change = priceData.change;
       }
     });
+    
+    // Calculate implied fund change = Σ(stockChange × stockWeight)
+    // stockPosition is percentage (e.g., 85 = 85%), divide by 100 to get ratio
+    const stockPositionRatio = position.stockPosition / 100; // e.g., 0.85
+    const perStockWeight = position.stocks.length > 0 ? stockPositionRatio / position.stocks.length : 0;
+    
+    position.stocks.forEach(stock => {
+      impliedChange += stock.change * perStockWeight;
+      totalStockWeight += perStockWeight;
+    });
+    
+    // Normalize by actual total weight
+    if (totalStockWeight > 0) {
+      impliedChange = impliedChange / totalStockWeight;
+    }
   }
+  
+  const navChange = Math.round(impliedChange * 100) / 100;
+  const nav = Math.round(yesterdayNav * (1 + navChange / 100) * 10000) / 10000;
   
   return {
     code,
@@ -253,9 +272,9 @@ export async function fetchFundData(code: string): Promise<FundData | null> {
     nav,
     navChange,
     navChangeAmount: Math.round(yesterdayNav * navChange / 100 * 10000) / 10000,
-    updateTime,
+    updateTime: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
     yesterdayNav,
-    navHistory,
+    navHistory: basicInfo.navHistory,
     position,
   };
 }
