@@ -77,22 +77,13 @@ export default function Home() {
     }
   }, [fundCodes]);
 
-  // Auto-refresh: 30 seconds for indices, 60 seconds for funds
+    // Auto-refresh: 30 seconds for indices, 60 seconds for funds
   useEffect(() => {
     if (!isAutoRefresh) return;
     
-    // Refresh indices every 30 seconds - accumulate history
     const indexInterval = setInterval(() => {
       fetchIndexData().then(indices => {
-        setIndexData(prev => {
-          return indices.map(newIdx => {
-            const oldIdx = prev.find(i => i.code === newIdx.code);
-            const history = oldIdx?.history || [];
-            // Add new value to history (keep last 20)
-            const newHistory = [...history, newIdx.value].slice(-20);
-            return { ...newIdx, history: newHistory };
-          });
-        });
+        setIndexData(indices);
       });
     }, 30000);
     
@@ -222,7 +213,6 @@ export default function Home() {
                   value={index.value}
                   change={index.change}
                   type={getIndexType(index.change)}
-                  history={index.history}
                 />
               ))
             ) : (
