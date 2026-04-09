@@ -41,9 +41,9 @@ export async function GET(
     }
     
     const [name, current, nav, yesterdayNav, date, changeAmount] = fields;
-    const currentVal = parseFloat(current) || 0;
-    const navVal = parseFloat(nav) || 0;
-    const yesterdayNavVal = parseFloat(yesterdayNav) || 0;
+    const currentVal = parseFloat(current) || 0;      // gsz: 估算当前净值
+    const navVal = parseFloat(nav) || 0;              // dwjz: 单位净值(今日收盘后)
+    const yesterdayNavVal = parseFloat(yesterdayNav) || 0; // 真正的昨日净值
     const changeAmt = parseFloat(changeAmount) || 0;
     // NAV change percent: current/yesterdayNAV - 1, then * 100
     const navChange = yesterdayNavVal > 0 ? ((currentVal - yesterdayNavVal) / yesterdayNavVal * 100) : 0;
@@ -51,12 +51,12 @@ export async function GET(
     return NextResponse.json({
       fundcode: code,
       name: name,
-      dwjz: nav,          // 昨日净值/单位净值
-      gsz: current,        // 估算当前净值
-      gszzl: navChange.toFixed(2),  // 涨跌幅 %
-      gztime: new Date().toLocaleString('zh-CN'),  // 更新时间
-      jzrq: date,         // 日期
-      navHistory: [],      // 历史净值由客户端直接获取
+      dwjz: yesterdayNav,        // 昨日净值 ← fields[3]
+      gsz: current,               // 估算当前净值 ← fields[1]
+      gszzl: navChange.toFixed(2), // 涨跌幅 %
+      gztime: new Date().toLocaleString('zh-CN'),
+      jzrq: date,
+      navHistory: [],
     });
   } catch (error) {
     console.error(`Failed to fetch fund ${code}:`, error);
