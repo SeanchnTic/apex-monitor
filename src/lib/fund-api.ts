@@ -233,7 +233,7 @@ export async function fetchStockPricesViaAPI(codes: string[]): Promise<Map<strin
       return `sh${code}`;
     }).join(',');
     
-    const response = await fetch(`/api/stocks/${sinajsCodes}`, {
+    const response = await fetch(`/api/stocks?codes=${sinajsCodes}`, {
       signal: AbortSignal.timeout(8000),
     });
     
